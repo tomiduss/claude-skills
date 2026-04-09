@@ -277,12 +277,12 @@ See `references/report-templates.md` for the exact templates to use.
 All outputs for a QA session go in a single session directory under `docs/qa-testing-outputs/`.
 The directory name should be a short, human-readable snake_case title describing the session.
 
-**Naming convention:** `{scope}_{date}` or a descriptive title from the user.
+**Naming convention:** `{date}_{scope}` — date prefix ensures chronological sorting in the filesystem.
 
 Examples:
-- `docs/qa-testing-outputs/full_qa_2026_02_16/`
-- `docs/qa-testing-outputs/admin_panel_mobile_audit/`
-- `docs/qa-testing-outputs/post_launch_regression/`
+- `docs/qa-testing-outputs/2026_02_16_full_qa/`
+- `docs/qa-testing-outputs/2026_02_16_admin_panel_mobile_audit/`
+- `docs/qa-testing-outputs/2026_02_16_post_launch_regression/`
 
 ```
 {project_root}/docs/qa-testing-outputs/{session_name}/
