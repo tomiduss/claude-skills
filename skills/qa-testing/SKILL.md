@@ -1,241 +1,228 @@
 ---
 name: qa-testing
 description: >
-  Use ONLY when the user explicitly requests a multi-agent QA team to test a web application.
-  Trigger phrases: /qa-testing, "run QA team", "spawn QA agents", "multi-agent QA",
-  "QA testing team", "parallel browser testing team". Do NOT activate for general testing
-  requests, single-agent browser testing, writing Playwright tests, or casual mentions of
-  "test my app" — those are handled by other tools. This skill requires deliberate invocation.
+  Use when the user explicitly requests a multi-agent QA team to test a running
+  web application in parallel across roles (functional, mobile, accessibility,
+  UX, test generation). Triggers: /qa-testing, "QA team", "parallel browser
+  testing". Do NOT activate for single-agent browser testing, writing Playwright
+  specs alone, or casual "test my app" requests.
 ---
 
 # QA Testing — Multi-Agent Browser Testing Orchestrator
 
-Coordinate a team of specialized QA agents, each with its own isolated Playwright browser
-instance, to test a live web application in parallel. Produces a consolidated report with
-prioritized findings, screenshots as evidence, and optionally generates reusable Playwright
-test specs.
+Coordinate a team of specialized QA subagents, each driving an isolated browser
+session, to test a live web application in parallel. Produces a consolidated
+report with prioritized findings, screenshots as evidence, and optionally
+generates reusable Playwright test specs.
+
+This skill is **an orchestration wrapper** — it does not teach agents how to
+drive a browser. That's the job of the `playwright-cli` skill, which every
+browser-using tester invokes.
+
+## Prerequisites
+
+- **`playwright-cli` skill** — hard dependency. If missing, ask the user to run
+  `playwright-cli install --skills` from the project root.
+- **Target application is running.** This skill does not manage dev servers.
+- **`Agent` tool available** to dispatch testers as subagents.
 
 ## When to Use
 
 - User explicitly asks for a **QA team** or **multi-agent testing**
 - User invokes `/qa-testing`
 - User wants **parallel browser testing** across multiple app areas
-- User needs a **comprehensive QA audit** covering functional + UX + accessibility + mobile
+- User needs a **comprehensive QA audit** (functional + UX + accessibility + mobile)
 
 ## When NOT to Use
 
-- **Single test or quick check** — Use `playwright-cli` skill or browser tools directly
-- **Writing Playwright test files** — Use `playwright-cli` skill
-- **Code review or static analysis** — Use code review agents
-- **Unit/integration testing** — Use standard test runners
-- **Backend/API-only testing** — No browser needed, wrong tool
-- **App has < 3 routes** — Overhead of multi-agent setup isn't worth it; test manually
+- **Single test or quick check** — use `playwright-cli` skill directly
+- **Writing Playwright test specs alone** — use `playwright-cli` skill directly
+- **Code review or static analysis** — wrong tool
+- **Unit/integration testing** — use standard test runners
+- **Backend/API-only testing** — no browser needed
+- **App has < 3 routes** — multi-agent overhead isn't worth it
 
-## Prerequisites
+## Core Principles
 
-- `@playwright/mcp@latest` available via npx
-- The application under test must be running (skill does NOT manage dev servers)
-- Claude Code with subagent spawning capability (Task tool)
+1. **One session per browser-using tester.** Every tester gets a dedicated
+   `-s=qa-{N}` namespace in `playwright-cli`. Sharing sessions causes the #1
+   source of false positives: one agent's navigation disrupts another's.
+2. **Page ownership is exclusive.** Two testers must never visit the same page
+   at the same time. The lead enforces this at composition time.
+3. **The lead never touches a browser.** It interviews, composes the team,
+   spawns testers, collects return values, validates, and writes the report.
+4. **Validation pass before report.** The lead cross-references findings to
+   catch testing artifacts before publishing.
+5. **Testers delegate browser mechanics to `playwright-cli`.** This skill
+   documents *when* and *why*; the CLI skill documents *how*.
+6. **Model split with explicit `model:` parameter.** The main context (the
+   lead) runs on opus; every tester `Agent` spawn sets `model: "sonnet"`
+   explicitly. Never rely on inheritance — a test run proved it silently
+   keeps testers on whatever the parent was running.
 
-Read `references/role-catalog.md` before assembling the team.
-Read `references/playwright-mcp-setup.md` before configuring browser instances.
-Read `references/report-templates.md` before producing the final report.
+## Architecture
+
+```
+Main context (opus)  ◄── this IS the lead. Interviews, composes,
+     │                     spawns, collects, validates, reports.
+     │
+     ├── Agent(qa-1, sonnet) ──► browser session qa-1 ──► findings
+     ├── Agent(qa-2, sonnet) ──► browser session qa-2 ──► findings
+     └── Agent(qa-3, sonnet) ──► browser session qa-3 ──► findings
+                                 (parallel; block until all return)
+
+          filesystem as shared state:
+          - auth/*.json      (state-save files from auth setup)
+          - screenshots/...  (evidence written by testers)
+          - findings aggregated from return values at end
+```
+
+**There is no separate `qa-lead` subagent.** The main context plays the lead
+directly. **There is no mid-run messaging between testers.** Coordination
+happens through (a) the filesystem for shared artifacts and (b) structured
+`Agent` return values at the end of each tester's run. This skill deliberately
+uses plain subagents instead of the Claude Code agent-teams feature — QA
+testers audit disjoint slices of the app and never need to debate or relay
+findings mid-flight, so the team framework's coordination machinery is
+overhead without payoff here.
+
+## Workflow
+
+```
+Phase 1: Interview       → gather scope, auth, focus
+Phase 2: Team Assembly   → pick roles, assign sessions & pages, spawn
+Phase 3: Execution       → testers return findings; lead collects
+Phase 4: Validation      → cross-reference, deduplicate, produce report
+```
 
 ---
 
 ## Phase 1: Interview & Discovery
 
-When the user invokes `/qa-testing`, begin an interactive interview to gather context.
-Do NOT skip this phase — missing information leads to wasted agent runs and false positives.
+Run an interactive interview before anything else. **Do not skip it** —
+missing information causes wasted tester runs and false positives.
 
-### Required Information
+**Read `references/interview.md`** for the question schema, required
+information, codebase discovery patterns, and interview shortcuts.
 
-Gather these answers before proceeding. If information is missing, ask for it.
-
-#### 1. Application Under Test
-- **Base URL** — e.g., `http://localhost:3000` or `https://staging.example.com`
-- **Backend URL** (if separate) — e.g., `http://localhost:8090`
-- **Framework** — Auto-detect from `package.json` if available (Next.js, Vite, Remix, etc.)
-
-#### 2. What to Test
-Determine the scope. Ask the user which applies:
-
-- **"I have user stories / test plan"** — User provides a document or describes flows
-- **"Inspect my codebase"** — Discover routes, pages, and components automatically:
-  - Use Glob to find route files (e.g., `src/app/**/page.tsx` for Next.js App Router)
-  - Use Grep to identify auth patterns (middleware, session checks)
-  - Use Read on route files to understand page structure
-  - Count total pages to estimate team size
-- **"Test everything"** — Combine codebase inspection with smart defaults
-
-#### 3. Authentication
-- **No auth needed** — Public-only testing
-- **Credentials provided** — User gives email/password pairs and role descriptions
-- **Storage state file** — User provides a `storage-state.json` path (from a previous `npx playwright codegen --save-storage` session)
-
-For each auth role (e.g., admin, regular user, premium user), gather separate credentials
-or storage state. Each role may need its own agent or agent set.
-
-#### 4. Scope & Focus
-Ask what matters most — this determines team composition:
-
-- Functional testing (do features work?)
-- UX / design audit (does it look right?)
-- Brand compliance (does it match guidelines?)
-- Accessibility (WCAG compliance)
-- Mobile / responsive (breakpoint testing)
-- Performance perception (loading states, transitions)
-- Automated test generation (produce .spec.ts files)
-
-#### 5. Project-Specific Context
-- **Brand guidelines file** — Path to brand docs if UX/brand audit is needed
-- **Design system** — CSS tokens file, Tailwind config, etc.
-- **Known issues to skip** — So agents don't re-report known bugs
-- **Generated code paths to ignore** — e.g., `src/api/generated/`
-
-### Discovery Shortcuts
-
-If the user says "just test it" or gives minimal info, auto-discover using Claude Code tools:
-
-```
-# Detect framework
-Read package.json → check for next, vite, remix, svelte, astro
-
-# Find route structure (Next.js App Router example)
-Glob("src/app/**/page.tsx") → list all pages
-
-# Count pages to estimate scope
-Count results from Glob
-
-# Check for auth patterns
-Grep("middleware|getServerSession|useSession|cookies\\(\\)", path: "src/", glob: "*.ts")
-
-# Find existing test files
-Glob("**/*.spec.ts") or Glob("**/*.test.ts")
-```
+If the user says "just test it" or "test everything", run the codebase
+discovery step from that reference first and use the result to propose a
+scope for confirmation before continuing to Phase 2.
 
 ---
 
 ## Phase 2: Team Assembly
 
-Based on interview answers, select agents from the role catalog and assign browser instances.
+Based on the interview, compose the team, assign sessions and pages, then
+spawn.
 
-### Principles
+**Before assembling, read:**
+- `references/session-isolation.md` — session naming, viewport conventions,
+  auth state flow, output directory structure
+- `references/role-catalog.md` — role definitions and the **Base Tester
+  Prompt** every browser tester extends
 
-1. **One browser per browser-using agent** — Never share Playwright instances between agents.
-   This prevents the #1 source of false positives: one agent's navigation disrupting another's.
-2. **Not all agents need browsers** — Code-level analysts (Grep, Read) don't need Playwright.
-3. **QA Lead never uses a browser** — It coordinates, collects, and synthesizes only.
-4. **Team size scales with scope** — 2 agents for a 5-page app, 4+ for a 30-page platform.
-5. **Assign skills to agents** — Each agent should invoke relevant skills based on its role.
-   See the role catalog for skill assignments.
+### Composition
 
-### Team Composition Logic
+- **Lead**: the main context (opus). No separate spawn.
+- **Functional testing**: one `functional-qa` per major section (admin,
+  user, public) — each with its own `-s=qa-{N}` session
+- **Admin panel**: `admin-qa` (functional-qa variant for CRUD workflows)
+- **UX / brand audit**: `ux-analyst` (code-level primary, browser optional)
+- **Mobile / responsive**: `mobile-qa` with mobile viewport
+- **Accessibility**: `accessibility-qa` (keyboard nav + snapshot tree)
+- **Automated test generation**: `test-writer` (no browser — writes code)
+- **Optional**: `performance-qa`, `security-qa`
+
+Every tester runs on **sonnet**. See `role-catalog.md` for per-role prompts.
+
+### Team Sizing
+
+| App size | Browser testers |
+|---|---|
+| < 3 routes | Don't use this skill — test manually |
+| 3–10 routes | 1–2 |
+| 10–30 routes | 3–4 |
+| 30+ routes | 4–6 (more causes coordination drag) |
+
+### Spawning
+
+For every tester, issue a separate `Agent` tool call **in the same turn** so
+they run in parallel. The `model:` parameter is **required** — never omit it
+and never rely on inheritance.
 
 ```
-IF scope includes functional testing:
-  ADD functional-qa agent(s) — 1 per major app section (admin, user, public)
-  ASSIGN browser: playwright-qa-{N}
-
-IF scope includes UX / brand audit:
-  ADD ux-analyst agent (code-level, no browser needed for Grep/Read work)
-  OPTIONALLY ADD ux-browser agent if visual screenshots needed
-  ASSIGN skills: ui-ux-pro-max, web-design-guidelines, tailwind-design-system
-
-IF scope includes mobile / responsive:
-  ADD mobile-qa agent with specific viewport config
-  ASSIGN browser: playwright-qa-{N} (configured with mobile viewport)
-
-IF scope includes accessibility:
-  ADD accessibility-qa agent
-  ASSIGN browser: playwright-qa-{N}
-  Focus: keyboard nav, ARIA, contrast, screen reader semantics
-
-IF scope includes automated test generation:
-  ADD test-writer agent (no browser — writes code, runs via CLI)
-  ASSIGN skill: playwright-cli
-
-ALWAYS ADD qa-lead as coordinator (no browser)
+Agent({
+  description: "qa-1 admin polls tester",
+  subagent_type: "general-purpose",
+  model: "sonnet",                      // REQUIRED — never inherit
+  name: "qa-1-admin",
+  prompt: "<Base Tester Prompt + role-specific additions from
+           references/role-catalog.md, with {N}=1, assigned pages,
+           auth instructions, and session_dir interpolated>"
+})
 ```
 
-### Browser Instance Configuration
+**Spawn order:**
+1. If auth setup is needed, run **that single Agent call first and
+   sequentially**, wait for its return, and capture the state file path from
+   its output.
+2. Bake that state file path into every tester prompt in the batch.
+3. Spawn the full tester batch in one parallel turn.
+4. Block until all testers return.
 
-For each browser-using agent, configure an isolated Playwright MCP server.
-See `references/playwright-mcp-setup.md` for the full `.mcp.json` template, viewport
-variants, storage state setup, and troubleshooting.
-
-### Permissions Setup
-
-See `references/playwright-mcp-setup.md` for the permissions configuration needed
-in `.claude/settings.json` to avoid approval prompts during testing.
+The main context can do other work (e.g., prepare the report skeleton) while
+the batch runs, but the next phase depends on all return values.
 
 ---
 
-## Phase 3: Task Assignment & Execution
+## Phase 3: Execution
 
-### QA Lead Responsibilities
+### Lead Responsibilities
 
-The QA Lead agent:
+1. Compose each tester's prompt from the Base Tester Prompt + role additions
+2. Assign explicit page ownership to each tester in its prompt
+3. Spawn auth setup sequentially if needed; then spawn the tester batch
+4. Wait for all testers to return
+5. Parse return values into a unified findings collection
+6. Run the Phase 4 validation pass
+7. Write the final report
 
-1. **Creates tasks** for each agent with clear scope boundaries
-2. **Assigns page ownership** — No two browser agents visit the same page simultaneously.
-   This is the browser equivalent of file ownership in code teams.
-3. **Sequences dependencies** — e.g., if an agent must create test users before others can test
-   authenticated flows, that agent starts first.
-4. **Monitors progress** via `team-status`
-5. **Collects findings** from all agents when they complete
-6. **Runs validation pass** before finalizing (see Phase 4)
-7. **Produces final report** with consolidated, deduplicated, prioritized findings
+### Per-Tester Workflow
 
-### Agent Workflow (per browser-using agent)
+Every browser-using tester follows this protocol for each assigned page:
 
-Each agent follows this protocol for every page it tests:
-
-```
-1. Navigate to the page
-2. browser_snapshot → understand page structure (accessibility tree)
-3. browser_take_screenshot → capture visual evidence (save with descriptive filename)
-4. browser_console_messages (level: "error") → check for JS errors
-5. Interact with all interactive elements (forms, buttons, links, dropdowns)
+1. Navigate to the page (using its `-s=qa-{N}` session)
+2. Take a snapshot to understand structure
+3. Capture a screenshot as visual evidence
+4. Check console for errors
+5. Interact with all interactive elements
 6. Verify expected behavior
-7. Document any issues found with:
-   - Severity (P0-P3)
-   - Steps to reproduce
-   - Expected vs actual behavior
-   - Screenshot filename as evidence
-   - Console errors if relevant
-8. Move to next page
-```
+7. Record each issue (severity, reproduction, expected vs actual, evidence)
+8. Move to the next assigned page
 
-### Agent Communication Protocol
+**Exact commands live in the `playwright-cli` skill.** Every tester invokes
+`Skill(playwright-cli)` at startup and prefixes every command with its
+session flag (e.g., `playwright-cli -s=qa-2 goto ...`).
 
-Agents communicate with qa-lead via the agent-teams messaging system:
+### Coordination Mechanics
 
-- **Finding report**: Agent sends structured finding as it discovers issues (don't wait until end)
-- **Blocker alert**: If an agent is blocked (e.g., can't login), notify qa-lead immediately
-- **Completion signal**: Agent reports when all assigned tasks are done
-- **Credential relay**: If one agent creates test accounts, send credentials to qa-lead for distribution
+This skill uses **filesystem + Agent return values** for coordination — not
+a message bus. Plan Phase 3 around this constraint:
 
-### Skill Invocation
-
-Each agent should invoke relevant skills based on its role. Include skill invocation
-instructions in the agent's prompt:
-
-```
-# Example: UX analyst agent prompt excerpt
-Invoke these skills as needed during your audit:
-- Skill(ui-ux-pro-max) — for design quality evaluation
-- Skill(web-design-guidelines) — for Web Interface Guidelines compliance
-- Skill(tailwind-design-system) — for design system consistency
-- Skill(ux-researcher-designer) — for UX research frameworks
-```
-
-```
-# Example: Test writer agent prompt excerpt
-Invoke these skills for test generation:
-- Skill(playwright-cli) — for Playwright CLI patterns and test structure
-- Skill(vercel-react-best-practices) — for understanding component patterns to test
-```
+- **Credential handoff**: auth-setup runs sequentially first and returns
+  the state file path. The lead bakes that path into each tester's prompt
+  before spawning the batch. No mid-run handoff.
+- **Findings**: testers return them as structured output at the end of
+  their run. The lead parses all return values together.
+- **Blockers**: testers return early with a `blocker:` note in their
+  output. The lead decides whether to spawn a follow-up Agent call after
+  the batch completes.
+- **Observability**: no live visibility. The main context only sees tester
+  output when the Agent call returns. For long runs, prefer fewer testers
+  with larger page batches to reduce wall-clock uncertainty.
+- **Page ownership**: fully decided before spawning. You cannot rebalance
+  mid-run. If a tester finishes early, its capacity is lost for this batch.
 
 ---
 
@@ -243,103 +230,82 @@ Invoke these skills for test generation:
 
 ### Cross-Reference Validation (CRITICAL)
 
-Before finalizing the report, the QA Lead MUST perform a validation pass to catch
-false positives. This is the most important quality gate.
+Before finalizing, the lead **must** perform a validation pass. This is the
+primary quality gate.
 
-**Check for testing artifacts vs real bugs:**
-
-1. **Redirect inconsistency check**: If Agent A reports "page X redirects to page Y" and
-   Agent B was navigating to page Y at the same time → likely a browser isolation failure,
-   NOT a real bug. Flag as "Needs manual verification."
-
-2. **Duplicate detection**: Two agents may find the same issue on different pages (e.g.,
-   a global navigation bug). Deduplicate and credit both reporters.
-
-3. **Environment vs application bugs**: Distinguish between:
-   - App bugs (broken features, wrong behavior)
-   - Environment issues (backend down, stale data, network timeout)
-   - Testing artifacts (browser context bleed, race conditions in test setup)
-
-4. **Severity calibration**: Review all P0/P1 issues critically. A P0 must be reproducible
-   and block core functionality. If only one agent observed it, suggest retest.
+1. **Redirect inconsistency check** — if tester A reports "page X redirects
+   to page Y" and tester B was navigating to page Y around the same wall
+   clock, flag as possible session isolation failure (not a real bug); mark
+   for manual retest.
+2. **Duplicate detection** — two testers may find the same global issue on
+   different pages. Deduplicate and credit both reporters.
+3. **Environment vs app bugs** — distinguish app bugs from environment
+   issues (backend down, stale data) and testing artifacts.
+4. **Severity calibration** — review every P0/P1 critically. A P0 must be
+   reproducible. Single-observer P0s get flagged for retest.
 
 ### Report Production
 
 Produce two outputs:
 
-1. **`QA_REPORT.md`** — Human-readable consolidated report
-2. **`qa-findings.json`** — Machine-parseable findings for automation
+1. `QA_REPORT.md` — human-readable consolidated report
+2. `qa-findings.json` — machine-parseable for automation
 
-See `references/report-templates.md` for the exact templates to use.
+**Read `references/report-templates.md` for the exact templates.**
 
-#### Output Directory
-
-All outputs for a QA session go in a single session directory under `docs/qa-testing-outputs/`.
-The directory name should be a short, human-readable snake_case title describing the session.
-
-**Naming convention:** `{date}_{scope}` — date prefix ensures chronological sorting in the filesystem.
-
-Examples:
-- `docs/qa-testing-outputs/2026_02_16_full_qa/`
-- `docs/qa-testing-outputs/2026_02_16_admin_panel_mobile_audit/`
-- `docs/qa-testing-outputs/2026_02_16_post_launch_regression/`
+### Output Directory
 
 ```
-{project_root}/docs/qa-testing-outputs/{session_name}/
-├── QA_REPORT.md              # Consolidated human-readable report
-├── qa-findings.json           # Machine-parseable findings
-├── screenshots/               # Evidence screenshots organized by area
-└── traces/                    # Playwright traces per agent
-    ├── agent-1/
-    ├── agent-2/
-    └── agent-3/
+docs/qa-testing-outputs/{YYYY_MM_DD}_{scope}/
+├── QA_REPORT.md
+├── qa-findings.json
+├── auth/                 ← state-save files (ephemeral)
+├── screenshots/          ← evidence, grouped by area
+└── traces/qa-1, qa-2, …
 ```
 
-Ask the user for a session name, or auto-generate one from the scope and date.
+Ask the user for a session name, or auto-generate from scope + date.
 
 ### Post-Report Actions
 
-After delivering the report, offer the user:
-
-1. **Generate automated tests** for bugs found (invoke `playwright-cli` skill)
-2. **Re-test specific failures** with a single focused agent
-3. **Cross-browser testing** (re-run with `--browser firefox` or `--browser webkit`)
-4. **Create fix tasks** from findings (if project management tools are connected)
+After delivering, offer:
+1. Generate automated tests from findings (spawn `test-writer`)
+2. Re-test specific failures with a single focused Agent call
+3. Cross-browser re-run (`playwright-cli open --browser=firefox`)
+4. Create fix tasks from findings (if PM tools connected)
 
 ---
 
 ## Mode: Automated Test Generation
 
-When the user requests automated test generation (either from interview or post-report):
-
-1. Spawn a `test-writer` agent (no browser needed — it writes code)
-2. The agent uses `Skill(playwright-cli)` for patterns and best practices
-3. For each finding or user flow, generate a `.spec.ts` file in `tests/qa/`
-4. Run the tests with `npx playwright test tests/qa/ --workers=3 --reporter=html`
-5. Review results and iterate on failing tests
-6. Final output: committed test files that can run in CI
-
-This mode can run independently or as a follow-up to exploratory QA.
+Spawn one `test-writer` agent (no browser). See its full prompt and
+workflow in `references/role-catalog.md` under `test-writer`. Feed it the
+findings or user stories and it produces `.spec.ts` files under
+`tests/qa/`. This mode runs independently or as a follow-up to exploratory
+QA.
 
 ---
 
 ## Common Mistakes
 
 | Mistake | Fix |
-|---------|-----|
-| Sharing browser instances between agents | Each agent gets its own `playwright-qa-{N}` MCP server. See `references/playwright-mcp-setup.md`. |
-| Skipping the validation pass (Phase 4) | QA Lead MUST cross-reference findings before finalizing. Unvalidated reports contain false positives. |
-| Not assigning page ownership | Two agents visiting the same page causes interference. QA Lead assigns exclusive page sets. |
-| Reporting testing artifacts as real bugs | Redirect issues when agents share pages are almost always test artifacts, not app bugs. |
-| Spawning too many agents for a small app | 2-3 routes? Use 1-2 agents max. Multi-agent overhead only pays off at 5+ pages. |
-| Agents waiting until end to report | Report findings as discovered. Waiting causes lost context and delays blocker resolution. |
-| Not setting up permissions in settings.json | Without wildcard MCP permissions, agents get interrupted by approval prompts constantly. |
+|---|---|
+| Sharing a session namespace across testers | Every tester gets its own `qa-{N}`. See `session-isolation.md`. |
+| Skipping Phase 4 validation | Unvalidated reports contain false positives. The cross-reference pass is the primary quality gate. |
+| Not assigning exclusive page ownership | Two testers on the same page → interference that looks like bugs. |
+| Reporting testing artifacts as real bugs | "Random redirects" + overlapping sessions = artifact, not bug. |
+| Spawning too many testers for a small app | < 3 routes? Don't use this skill. < 10? Max 2 browser testers. |
+| Duplicating `playwright-cli` command docs in this skill | This skill is orchestration-only. Delegate mechanics to the dependency. |
+| Omitting `model:` on `Agent` spawns (inheritance happens silently) | The `model:` parameter is **required** on every tester spawn. See Phase 2. |
+| Spawning a separate `qa-lead` subagent | The main context IS the lead. There is no separate spawn. |
+| Expecting mid-run communication between testers | Coordination is through filesystem and return values only. Plan Phase 3 around this. |
+| Rebalancing page ownership after spawning the batch | Can't happen — there's no mid-run control plane. Rebalance on the next spawn. |
 
 ---
 
 ## Quick Start Examples
 
-**Minimal invocation:**
+**Minimal invocation**
 ```
 /qa-testing
 > Base URL: http://localhost:3000
@@ -347,16 +313,16 @@ This mode can run independently or as a follow-up to exploratory QA.
 > Auth: admin@example.com / password123
 ```
 
-**Targeted invocation:**
+**Targeted audit**
 ```
 /qa-testing
 > Base URL: https://staging.myapp.com
-> Focus: Mobile UX + accessibility only
-> Auth: storage-state at ./auth/user.json
+> Focus: Mobile UX + accessibility
+> Auth: storage-state at ./qa-config/user.json
 > Brand guidelines: ./docs/BRAND.md
 ```
 
-**Test generation only:**
+**Test generation only**
 ```
 /qa-testing --mode=generate-tests
 > Base URL: http://localhost:3000
