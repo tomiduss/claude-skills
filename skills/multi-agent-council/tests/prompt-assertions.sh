@@ -38,4 +38,11 @@ check "1.d — budget-consumed reporting required"                            "$
 check "1.e — named-claim requirement in Round 2 present"                    "$DL" "name the.*claim|quote the specific claim" present
 check "1.e — weak 'Update if warranted' directive removed"                  "$DL" "^.*Update if warranted.*$" absent
 
+### pre-mortem.md — Task 2 ###
+check "2.1 — old 'reasoning and tradeoffs' inheritance removed"             "$PM" "reasoning and tradeoffs documented by the core pattern" absent
+check "2.1 — old 'dissent from core rounds' inheritance removed"            "$PM" "dissent or unresolved disagreements from the core rounds" absent
+check "2.1 — bias-isolation statement present"                              "$PM" "no access to the core council's reasoning|proposal artifact only" present
+check "2.2 — team-member dispatch (not Agent tool) specified"               "$PM" "added to the team|team-member dispatch|via TeamCreate|via the existing team" present
+check "2.2 — old 'spawns .* via.*Agent tool' removed"                       "$PM" "spawns.*via the Agent tool" absent
+
 exit $fail
