@@ -13,6 +13,7 @@ Deliberation patterns define how agents interact, what rounds look like, and how
 | Stakeholder Sim | Modifier | User-facing systems, API/DX design | Agents role-play the humans who will live with the decision — new dev, on-call engineer, end user |
 | Minority Report | Modifier | Documenting dissent after a high-stakes convergence | Dissent agent writes the strongest possible case against the final proposal |
 | Six Hats | Modifier | Sequential, thorough exploration of a single problem | Six cognitive modes applied in order: facts, intuition, risks, benefits, alternatives, synthesis |
+| Judge | Modifier | High-stakes deliberations requiring independent synthesis audit | Optional opt-in at the complexity gate; re-synthesizes from raw Round 1/Round 2 without seeing the team lead's synthesis; falsifiable rubric; caps at 1 revision; non-blocking on failure |
 
 ## Core Patterns vs. Modifiers
 

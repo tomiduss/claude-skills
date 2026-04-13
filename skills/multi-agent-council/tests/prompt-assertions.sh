@@ -53,4 +53,14 @@ check "3.2 — compound cost language present"                                "$
 check "3.3 — modifiers individually disableable"                            "$SK" "individually disableable|toggle.*modifier" present
 check "3.3 — refuse to spawn fallback present"                              "$SK" "refuse to spawn|direct analysis instead" present
 
+### judge.md — Task 4 ###
+check "4.1 — judge.md exists with title"                                    "$JD" "^# Judge" present
+check "4.1 — judge is optional/opt-in"                                      "$JD" "optional|opt-in" present
+check "4.1 — judge is dispatched as team member"                            "$JD" "added to the team|team-member dispatch|general-purpose.*team_name|team member" present
+check "4.1 — judge never sees the team lead's synthesis"                    "$JD" "not see.*team lead.*synthesis|never receives the synthesis" present
+check "4.1 — judge sees raw Round 1/Round 2"                                "$JD" "raw Round 1.*Round 2" present
+check "4.1 — falsifiable rubric only"                                       "$JD" "citation existence|citation.claim mapping" present
+check "4.1 — hard cap of 1 revision"                                        "$JD" "1 revision|one revision|single revision" present
+check "4.1 — non-blocking on judge failure"                                 "$JD" "non-blocking|judge unavailable" present
+
 exit $fail
