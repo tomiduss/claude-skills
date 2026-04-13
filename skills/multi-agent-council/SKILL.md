@@ -1,20 +1,12 @@
 ---
 name: multi-agent-council
 description: >
-  Run structured multi-agent deliberation on complex problems —
-  architecture design, system proposals, strategic exploration,
-  or high-stakes decisions. Spawns 2-4 research agents with distinct
-  value functions that independently explore the codebase, research
-  approaches, and argue from competing perspectives.
-  Use when the user explicitly wants multi-perspective deliberation:
-  "run a council", "explore this from multiple angles", "I want agents
-  to research and propose", "council this".
-  Heavyweight skill — do NOT trigger for simple questions.
-  Also supports "design mode" — outputs fully populated prompt packages
-  instead of spawning agents, for use in Claude.ai or other tools:
-  "design a council for", "give me the prompts for a council on".
-  Outputs: evidence-based proposal with tradeoff documentation,
-  optionally feeding into writing-plans-for-teams for execution.
+  Structured multi-agent deliberation for complex, multi-tradeoff problems —
+  architecture design, system proposals, high-stakes decisions. Spawns
+  competing-perspective agents that research and argue from constrained
+  value functions. Trigger: "run a council", "council this", "explore from
+  multiple angles", "design a council for". Heavyweight — do NOT trigger
+  for simple questions or problems with one obvious direction.
 ---
 
 # Multi-Agent Council
