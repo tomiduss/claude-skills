@@ -35,25 +35,56 @@ its own session namespace.** No exceptions.
 
 ## Session Naming Convention
 
+Session names must be **unique per QA run** to prevent collision with stale
+sessions from a prior run. The lead generates a 6-character hex **run ID**
+at the start of Phase 2 and bakes it into every session name:
+
+```bash
+# Generate run ID (lead does this once at Phase 2 start)
+RUN_ID=$(openssl rand -hex 3)   # e.g., "a3f9e2"
+```
+
 | Session name | Used by | Purpose |
 |---|---|---|
-| `qa-1` | First browser-using agent | Per-agent isolation |
-| `qa-2` | Second browser-using agent | Per-agent isolation |
-| `qa-3` | Third browser-using agent | Per-agent isolation |
-| `qa-{N}` | Agent `N` | Per-agent isolation |
-| `qa-auth-setup` | One-shot login session | Auth state generation (see below) |
+| `qa-{runId}-1` | First browser-using tester | Per-tester isolation |
+| `qa-{runId}-2` | Second browser-using tester | Per-tester isolation |
+| `qa-{runId}-{N}` | Tester `N` | Per-tester isolation |
+| `qa-{runId}-auth` | One-shot login session | Auth state generation (see below) |
 
-The QA lead assigns session names in the task prompt it sends to each agent.
-Every browser command an agent issues must use its assigned session flag:
+Example with `runId = a3f9e2`:
 
 ```
-playwright-cli -s=qa-2 goto https://app.example.com/admin
-playwright-cli -s=qa-2 snapshot
-playwright-cli -s=qa-2 click e5
+playwright-cli -s=qa-a3f9e2-2 goto https://app.example.com/admin
+playwright-cli -s=qa-a3f9e2-2 snapshot
+playwright-cli -s=qa-a3f9e2-2 click e5
 ```
 
 **Agents never share sessions and never use the unnamed default session** — the
 unnamed session is shared across processes and will cause interference.
+
+### Why unique IDs?
+
+Without a run ID, session `qa-1` from yesterday's crashed run might still be
+alive as an unclosed browser process. A new run using the same name reconnects
+to the stale browser with old cookies, navigation history, and auth state.
+The run ID makes accidental reuse impossible.
+
+### Pre-run hygiene
+
+The lead should check for stale sessions before spawning testers:
+
+```
+playwright-cli list
+```
+
+If any `qa-*` sessions appear, warn the user and offer cleanup:
+
+```
+playwright-cli close-all        # if only QA sessions are expected
+# or individually:
+playwright-cli -s=qa-<old>-1 close
+playwright-cli -s=qa-<old>-2 close
+```
 
 ---
 
@@ -75,6 +106,83 @@ through multiple sizes within a single session.
 
 ---
 
+## Config File & Output Directory
+
+The lead writes a per-run config file **before** spawning any tester. This
+ensures all automatic output (snapshots, console logs, network logs, traces)
+lands in the session directory without per-command path arguments.
+
+### Setup (lead does this in Phase 2, after creating the session dir)
+
+```bash
+# 1. Create the session directory structure
+SESSION_DIR="{project_root}/docs/qa-testing-outputs/{YYYY_MM_DD}_{scope}_{runId}"
+mkdir -p "$SESSION_DIR"/{auth,screenshots,traces}
+
+# 2. Write the config file
+cat > "$SESSION_DIR/cli.config.json" << EOF
+{
+  "outputDir": "$SESSION_DIR",
+  "outputMode": "file"
+}
+EOF
+```
+
+### What each setting does
+
+| Setting | Effect |
+|---|---|
+| `outputDir` | Base directory for all automatic output files (snapshots, console logs, network logs, traces) |
+| `outputMode: "file"` | Forces console messages and network logs to be written as files (default is stdout). Free forensic evidence on every page visit. |
+
+### How testers use it
+
+Every tester opens its session with `--config`:
+
+```
+playwright-cli -s=qa-{runId}-{N} open {base_url} --config={SESSION_DIR}/cli.config.json
+```
+
+After opening, the config applies to all subsequent commands in that session.
+Testers do **not** need to pass `--config` on every command — only on `open`.
+
+### Path rules for screenshots
+
+**Critical**: `outputDir` applies to automatic files (snapshots, logs, traces)
+but does **NOT** apply to `screenshot --filename`. Screenshot filenames resolve
+against the agent's CWD, not outputDir.
+
+**Rule: always use absolute paths for screenshots.**
+
+```
+playwright-cli -s=qa-{runId}-2 screenshot --filename={SESSION_DIR}/screenshots/admin/dashboard.png
+```
+
+**The target directory must pre-exist** — `playwright-cli` does not create
+intermediate directories. The lead must `mkdir -p` the expected screenshot
+subdirectories when creating the session dir, or the tester must mkdir before
+its first screenshot in a new area.
+
+### What lands where
+
+After a run, the session directory looks like this:
+
+```
+{SESSION_DIR}/
+├── cli.config.json                      ← config file (written by lead)
+├── page-2026-04-12T14-*.yml             ← auto snapshots (from outputDir)
+├── console-2026-04-12T14-*.log          ← auto console logs (from outputMode)
+├── auth/                                ← state-save files
+├── screenshots/                         ← evidence (from --filename absolute paths)
+│   ├── admin/
+│   │   └── dashboard-kpi-missing.png
+│   └── user-flows/
+│       └── registro-form-broken.png
+└── traces/                              ← from tracing-start/stop
+```
+
+---
+
 ## Authentication State Flow
 
 ### Pattern A — credentials in hand
@@ -84,22 +192,22 @@ start testing authenticated pages:
 
 1. Lead spawns one-shot `auth-setup` task:
    ```
-   playwright-cli -s=qa-auth-setup open {login_url}
-   playwright-cli -s=qa-auth-setup snapshot
-   playwright-cli -s=qa-auth-setup fill e{email_ref} "admin@example.com"
-   playwright-cli -s=qa-auth-setup fill e{pw_ref} "password123"
-   playwright-cli -s=qa-auth-setup click e{submit_ref}
+   playwright-cli -s=qa-{runId}-auth open {login_url}
+   playwright-cli -s=qa-{runId}-auth snapshot
+   playwright-cli -s=qa-{runId}-auth fill e{email_ref} "admin@example.com"
+   playwright-cli -s=qa-{runId}-auth fill e{pw_ref} "password123"
+   playwright-cli -s=qa-{runId}-auth click e{submit_ref}
    # verify successful login via snapshot
-   playwright-cli -s=qa-auth-setup state-save {session_dir}/auth/admin-state.json
-   playwright-cli -s=qa-auth-setup close
+   playwright-cli -s=qa-{runId}-auth state-save {session_dir}/auth/admin-state.json
+   playwright-cli -s=qa-{runId}-auth close
    ```
 2. Lead messages downstream agents: "auth state saved at
    `{session_dir}/auth/admin-state.json`"
 3. Each downstream agent loads the state into its own session **before**
    navigating anywhere:
    ```
-   playwright-cli -s=qa-2 state-load {session_dir}/auth/admin-state.json
-   playwright-cli -s=qa-2 goto {base_url}/admin
+   playwright-cli -s=qa-{runId}-2 state-load {session_dir}/auth/admin-state.json
+   playwright-cli -s=qa-{runId}-2 goto {base_url}/admin
    ```
 
 ### Pattern B — pre-existing storage state
@@ -145,9 +253,9 @@ for chronological sorting:
 │   ├── user-flows/
 │   └── mobile/
 └── traces/                        ← playwright-cli tracing output
-    ├── qa-1/
-    ├── qa-2/
-    └── qa-3/
+    ├── qa-{id}-1/
+    ├── qa-{id}-2/
+    └── qa-{id}-3/
 ```
 
 Examples of full directory names:
@@ -161,7 +269,7 @@ Agents save screenshots with descriptive names relative to the session's
 `screenshots/` directory:
 
 ```
-playwright-cli -s=qa-2 screenshot --filename={session_dir}/screenshots/admin/dashboard-kpi-missing.png
+playwright-cli -s=qa-{runId}-2 screenshot --filename={session_dir}/screenshots/admin/dashboard-kpi-missing.png
 ```
 
 Pattern: `{area}/{page}-{issue-description}.png`
@@ -188,7 +296,7 @@ commands until explicitly closed.
 Every agent **must** close its session when finished:
 
 ```
-playwright-cli -s=qa-2 close
+playwright-cli -s=qa-{runId}-2 close
 ```
 
 If an agent crashes or forgets, the lead (or the user) can sweep leftover

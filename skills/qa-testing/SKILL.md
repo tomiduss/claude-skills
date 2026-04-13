@@ -66,10 +66,10 @@ browser-using tester invokes.
 Main context (opus)  ◄── this IS the lead. Interviews, composes,
      │                     spawns, collects, validates, reports.
      │
-     ├── Agent(qa-1, sonnet) ──► browser session qa-1 ──► findings
-     ├── Agent(qa-2, sonnet) ──► browser session qa-2 ──► findings
-     └── Agent(qa-3, sonnet) ──► browser session qa-3 ──► findings
-                                 (parallel; block until all return)
+     ├── Agent(qa-{id}-1, sonnet) ──► session qa-{id}-1 ──► findings
+     ├── Agent(qa-{id}-2, sonnet) ──► session qa-{id}-2 ──► findings
+     └── Agent(qa-{id}-3, sonnet) ──► session qa-{id}-3 ──► findings
+                                      (parallel; block until all return)
 
           filesystem as shared state:
           - auth/*.json      (state-save files from auth setup)
@@ -145,28 +145,55 @@ Every tester runs on **sonnet**. See `role-catalog.md` for per-role prompts.
 | 10–30 routes | 3–4 |
 | 30+ routes | 4–6 (more causes coordination drag) |
 
+### Pre-spawn setup
+
+Before spawning any testers, the lead must:
+
+1. **Generate a run ID** — 6 hex chars for unique session naming:
+   ```bash
+   RUN_ID=$(openssl rand -hex 3)   # e.g., "a3f9e2"
+   ```
+2. **Create the session directory** (run ID in the name for uniqueness):
+   ```bash
+   SESSION_DIR="docs/qa-testing-outputs/{YYYY_MM_DD}_{scope}_${RUN_ID}"
+   mkdir -p "$SESSION_DIR"/{auth,screenshots,traces}
+   ```
+3. **Write the config file** — routes automatic output to the session dir:
+   ```bash
+   cat > "$SESSION_DIR/cli.config.json" << EOF
+   { "outputDir": "$(pwd)/$SESSION_DIR", "outputMode": "file" }
+   EOF
+   ```
+4. **Check for stale sessions** — `playwright-cli list`; warn if any `qa-*`
+   sessions from a prior run are still alive.
+
+See `references/session-isolation.md` for the full config format and path
+resolution rules (especially for screenshots, which need absolute paths).
+
 ### Spawning
 
 For every tester, issue a separate `Agent` tool call **in the same turn** so
-they run in parallel. The `model:` parameter is **required** — never omit it
-and never rely on inheritance.
+they run in parallel. The `model:` parameter is **required** — never omit it.
 
 ```
 Agent({
   description: "qa-1 admin polls tester",
   subagent_type: "general-purpose",
   model: "sonnet",                      // REQUIRED — never inherit
-  name: "qa-1-admin",
+  name: "qa-{RUN_ID}-1-admin",
   prompt: "<Base Tester Prompt + role-specific additions from
-           references/role-catalog.md, with {N}=1, assigned pages,
-           auth instructions, and session_dir interpolated>"
+           references/role-catalog.md. Interpolate:
+             {runId}       = the generated RUN_ID
+             {N}           = 1
+             {session_dir} = absolute path to SESSION_DIR
+             {config_path} = {session_dir}/cli.config.json
+             + assigned pages, auth instructions>"
 })
 ```
 
 **Spawn order:**
 1. If auth setup is needed, run **that single Agent call first and
-   sequentially**, wait for its return, and capture the state file path from
-   its output.
+   sequentially**, wait for its return, and capture the state file path.
 2. Bake that state file path into every tester prompt in the batch.
 3. Spawn the full tester batch in one parallel turn.
 4. Block until all testers return.
@@ -203,7 +230,7 @@ Every browser-using tester follows this protocol for each assigned page:
 
 **Exact commands live in the `playwright-cli` skill.** Every tester invokes
 `Skill(playwright-cli)` at startup and prefixes every command with its
-session flag (e.g., `playwright-cli -s=qa-2 goto ...`).
+session flag (e.g., `playwright-cli -s=qa-{runId}-2 goto ...`).
 
 ### Coordination Mechanics
 
@@ -261,7 +288,7 @@ docs/qa-testing-outputs/{YYYY_MM_DD}_{scope}/
 ├── qa-findings.json
 ├── auth/                 ← state-save files (ephemeral)
 ├── screenshots/          ← evidence, grouped by area
-└── traces/qa-1, qa-2, …
+└── traces/qa-{id}-1, qa-{id}-2, …
 ```
 
 Ask the user for a session name, or auto-generate from scope + date.

@@ -60,9 +60,12 @@ thoroughly using your dedicated browser session and return a structured
 findings report at the end.
 
 ## Your Session
-Session name: qa-{N}
-Every playwright-cli command MUST include `-s=qa-{N}`. Never use the
-unnamed default session. Never use another agent's session name.
+Session name: qa-{runId}-{N}
+Every playwright-cli command MUST include `-s=qa-{runId}-{N}`. Never use
+the unnamed default session. Never use another agent's session name.
+
+Open your session with the run's config file (routes output to session dir):
+  playwright-cli -s=qa-{runId}-{N} open {base_url} --config={config_path}
 
 ## Skills to Invoke
 - Skill(playwright-cli) — invoke immediately so the CLI reference is
@@ -94,8 +97,19 @@ If given a state file path, load it with `state-load` BEFORE navigating.
 - P3 Low: polish items, text issues, minor inconsistencies
 
 ## Screenshot Naming
-Save to: {session_dir}/screenshots/{area}/{page}-{description}.png
-Example: {session_dir}/screenshots/admin/dashboard-kpi-missing.png
+Screenshots must use ABSOLUTE paths — playwright-cli does not resolve
+--filename relative to the config's outputDir. Create the area subdir
+if it doesn't exist yet.
+
+  mkdir -p {session_dir}/screenshots/{area}
+  playwright-cli -s=qa-{runId}-{N} screenshot --filename={session_dir}/screenshots/{area}/{page}-{description}.png
+
+Example:
+  mkdir -p {session_dir}/screenshots/admin
+  playwright-cli -s=qa-{runId}-{N} screenshot --filename={session_dir}/screenshots/admin/dashboard-kpi-missing.png
+
+Snapshots, console logs, and network logs are saved to the session dir
+automatically by the config file — no --filename needed for those.
 
 ## Return Format
 At the end of your run, return a structured summary:
@@ -114,7 +128,7 @@ your assigned page list and return everything at the end.
 
 ## Session Cleanup
 When all assigned pages are tested, close your session:
-`playwright-cli -s=qa-{N} close`
+`playwright-cli -s=qa-{runId}-{N} close`
 ```
 
 **Role additions** (in each role's section below) may:
