@@ -45,4 +45,12 @@ check "2.1 — bias-isolation statement present"                              "$
 check "2.2 — team-member dispatch (not Agent tool) specified"               "$PM" "added to the team|team-member dispatch|via TeamCreate|via the existing team" present
 check "2.2 — old 'spawns .* via.*Agent tool' removed"                       "$PM" "spawns.*via the Agent tool" absent
 
+### SKILL.md complexity gate — Task 3 ###
+check "3.1 — old 'warning, not a block' removed"                            "$SK" "the gate is a warning, not a block" absent
+check "3.1 — structural gate requires 2 named tradeoffs"                    "$SK" "at least 2 meaningful tradeoffs|name 2 tradeoffs" present
+check "3.2 — inline cost tier table present"                                "$SK" "Simple.*tier.*10k|Baseline tier estimates" present
+check "3.2 — compound cost language present"                                "$SK" "compound.*(cost|estimate)" present
+check "3.3 — modifiers individually disableable"                            "$SK" "individually disableable|toggle.*modifier" present
+check "3.3 — refuse to spawn fallback present"                              "$SK" "refuse to spawn|direct analysis instead" present
+
 exit $fail
