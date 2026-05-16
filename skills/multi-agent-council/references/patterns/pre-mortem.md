@@ -15,15 +15,40 @@ A red-team pass that runs after a core pattern has produced a converged proposal
 
 ## Structure
 
-### Step 1 — Spawn Red-Team Agent
+### Step 1 — Add the Red-Team agent to the council team
 
-The team lead spawns a single red-team agent via TeamCreate. This agent receives:
+The Red-Team agent is added as a **team member** via the existing `TeamCreate` infrastructure used for deliberators. It is not spawned as a one-shot subagent via the Agent tool — doing so would create a second dispatch path and would bypass the dispatch accounting rule in `team-lead-prompt.md`.
 
-- The converged proposal from the core deliberation
-- The reasoning and tradeoffs documented by the core pattern
-- Any dissent or unresolved disagreements from the core rounds
+Dispatch specifics:
 
-The red-team agent's mandate: the proposal was implemented and it failed badly. Do not question whether it failed — it did. Work backwards from failure.
+- `subagent_type`: `general-purpose`
+- `team_name`: the same team the council is already running on
+- `name`: `red-team`
+- Prompt: use the Red-Team prompt template below (append to `references/deliberator-prompt.md` or inline here — implementation choice)
+
+The team lead then communicates with the Red-Team agent via `SendMessage` exactly like any deliberator. The agent participates in the dispatch accounting rule (it is in the expected-respondents list), the shutdown timeout (it acknowledges `shutdown_request` or is presumed dead), and the team deletion protocol.
+
+### Step 1.1 — Send the Red-Team agent its isolated context
+
+Once added to the team, the Red-Team agent receives a single `SendMessage` from the team lead containing **only**:
+
+- The **converged proposal artifact** itself — the Proposal Document's final recommendation and scope sections, **stripped of the "we considered / we rejected" reasoning sections**. Only the outcome, not the deliberation.
+- The **problem statement** as the user originally provided it.
+- An explicit instruction to use `Read`, `Glob`, `Grep` on the codebase to investigate failure modes from the code, not from the council's framing.
+
+The Red-Team agent is **explicitly denied** (not included in the message, not available through any other channel):
+
+- The Round 1 position papers
+- The Round 1 Digest
+- The Round 2 responses or Round 2 Summary
+- The tradeoff discussion from the core deliberation
+- Any dissent notes from the core rounds
+
+The Red-Team agent has **no access to the core council's reasoning** — only the proposal artifact and the original problem statement. This isolation is the mechanism that makes the pre-mortem valuable.
+
+The Red-Team agent's mandate, included in the same message: **"The proposal was implemented and it failed badly. Do not question whether it failed — it did. Work backwards from failure, using only the proposal artifact and the code, not any council's reasoning about it."**
+
+**Why this matters:** a "fresh" agent that has read the council's analysis is already anchored on the tradeoffs the council chose to frame. The pre-mortem's value comes specifically from the failure modes the council **did not** think about — which requires not knowing what the council **did** think about. See stress-tester finding A.4 in the recovered research logs under `docs/superpowers/plans/2026-04-09-council-improvements-research/`.
 
 ### Step 2 — Red-Team Analysis
 

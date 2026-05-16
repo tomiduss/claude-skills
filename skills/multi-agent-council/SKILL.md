@@ -1,20 +1,12 @@
 ---
 name: multi-agent-council
 description: >
-  Run structured multi-agent deliberation on complex problems —
-  architecture design, system proposals, strategic exploration,
-  or high-stakes decisions. Spawns 2-4 research agents with distinct
-  value functions that independently explore the codebase, research
-  approaches, and argue from competing perspectives.
-  Use when the user explicitly wants multi-perspective deliberation:
-  "run a council", "explore this from multiple angles", "I want agents
-  to research and propose", "council this".
-  Heavyweight skill — do NOT trigger for simple questions.
-  Also supports "design mode" — outputs fully populated prompt packages
-  instead of spawning agents, for use in Claude.ai or other tools:
-  "design a council for", "give me the prompts for a council on".
-  Outputs: evidence-based proposal with tradeoff documentation,
-  optionally feeding into writing-plans-for-teams for execution.
+  Structured multi-agent deliberation for complex, multi-tradeoff problems —
+  architecture design, system proposals, high-stakes decisions. Spawns
+  competing-perspective agents that research and argue from constrained
+  value functions. Trigger: "run a council", "council this", "explore from
+  multiple angles", "design a council for". Heavyweight — do NOT trigger
+  for simple questions or problems with one obvious direction.
 ---
 
 # Multi-Agent Council
@@ -40,10 +32,58 @@ Ask at most 3 clarifying questions to extract:
 - **What constraints exist?** (Timeline, team size, existing commitments, tech stack)
 - **Preferred deliberation pattern?** If the user has one, use it. If not, suggest one based on the problem type.
 
-**Complexity gate:** Assess whether a full council is warranted. If the problem has fewer than 2 meaningful tradeoffs or a clear single best answer, warn:
-> "This problem might not need a full council — it has a fairly clear direction. Want me to proceed with multi-agent deliberation anyway, or should I just give you my analysis?"
+**Complexity gate (structural, not advisory):** A council is a heavyweight tool — base token cost ranges from 5× single-Opus at Simple tier to 50× at Very Complex tier, and modifiers stack on top — and must not be spawned without written justification and explicit cost acceptance.
 
-Proceed if the user confirms. Always spawn agents — the gate is a warning, not a block.
+The gate blocks spawning unless the user satisfies **all three** of the following:
+
+#### 1. Name at least 2 meaningful tradeoffs
+
+Tradeoffs must be specific. "Scale vs. cost" is generic and not acceptable. "Postgres row-level security vs. application-level auth — RLS centralizes policy but blocks multi-tenant sharding; app-level scales but fragments policy across services" is acceptable. Write these in the skill dialogue before proceeding.
+
+If the user cannot name 2 meaningful tradeoffs, **refuse to spawn the council** and offer direct analysis instead:
+
+> "I don't see 2 distinct tradeoffs that warrant a full council here. Want me to analyze this directly — single pass, no council overhead? Or if you think the tradeoffs are there, rephrase them more specifically and I'll check again."
+
+#### 2. Pick a tier (shows baseline cost)
+
+**Baseline tier estimates — no modifiers:**
+
+| Tier | Meets | Deliberators | Rounds | Tool budget/agent | Est. tokens | ≈ cost vs single-Opus |
+|---|---|---|---|---|---|---|
+| **Simple** | ≤2 tradeoffs | 2 | 1 + synthesis | ~10k | ~50k total | ~5× |
+| **Moderate** | 3-4 tradeoffs | 3 | 2 + synthesis | ~20k | ~150k total | ~15× |
+| **Complex** | 5+ tradeoffs or high stakes | 4 | 2 + synthesis | ~35k | ~300k total | ~30× |
+| **Very Complex** | cross-domain, asymmetric info | 3 × 3 slices | 2 + synthesis | ~50k | ~500k total | ~50× |
+
+Estimates assume Sonnet 4.6 deliberators + Opus 4.6 team lead. The team lead populates `[TOKEN_BUDGET]` in `references/deliberator-prompt.md` with the per-agent column value for the chosen tier.
+
+#### 3. Pick modifiers (shows compound cost)
+
+**Modifier cost add-ons — all individually disableable:**
+
+| Modifier | Default | Add-on cost | Notes |
+|---|---|---|---|
+| Judge (`patterns/judge.md`) | off below Complex, opt-in at/above Complex | +30-50k tokens | Optional, non-blocking. See Task 4. |
+| Pre-mortem (`patterns/pre-mortem.md`) | off | +40-60k tokens | Adds one Red-Team team member + patch synthesis. |
+| Minority Report (`patterns/minority-report.md`) | off | +20-30k tokens | Preserves a dissenting voice in the proposal. |
+
+Show the user a compound estimate before spawning:
+
+```
+Tier: Complex (4 deliberators, 2 rounds, ~300k tokens)
+  + Judge modifier:      +40k
+  + Pre-mortem modifier: +50k
+  Total estimate:        ~390k tokens (~40× single-Opus cost)
+
+Reduce by disabling modifiers:
+  Council with Judge only:      ~340k
+  Council with Pre-mortem only: ~350k
+  Council with no modifiers:    ~300k
+```
+
+The user must explicitly accept the total **or** choose a reduced configuration. Every modifier is individually disableable — the baseline council (no modifiers) must always be runnable at the tier's advertised cost. No feature is baked so tightly that it cannot be turned off.
+
+Proceed with the council only after all three conditions are satisfied.
 
 ### Step 2 — Select pattern and compose council
 

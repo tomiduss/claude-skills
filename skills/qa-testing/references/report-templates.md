@@ -3,6 +3,18 @@
 Two report formats are produced: a human-readable markdown report and a
 machine-parseable JSON findings file.
 
+## Contents
+
+- [QA_REPORT.md Template](#qa_reportmd-template) — full markdown layout
+  (executive summary, P0–P3 issue sections, UX/accessibility/mobile
+  sub-reports, coverage table, agent reports, validation notes)
+- [qa-findings.json Schema](#qa-findingsjson-schema) — machine-parseable
+  structure for automation
+- [Finding Severity Definitions](#finding-severity-definitions) — P0–P3
+  rubric with SLAs
+- [Validation Status Values](#validation-status-values) — confirmed,
+  likely_real, needs_verification, false_positive
+
 ---
 
 ## QA_REPORT.md Template
@@ -171,7 +183,7 @@ if the issue is self-evident from the description.}
 **Test Credentials:** {roles_tested, no actual passwords}
 **Browsers:** Chromium (via Playwright)
 **Viewports Tested:** {list}
-**Traces:** Available in `docs/qa-testing-outputs/{session_name}/traces/agent-{N}/` — open with `npx playwright show-trace`
+**Traces:** Available in `docs/qa-testing-outputs/{session_name}/traces/qa-{N}/` — open with `npx playwright show-trace`
 
 ---
 

@@ -49,12 +49,22 @@ The responsibilities below describe the standard Council pattern flow. If the de
    - Redirect the deliberation
    - Approve proceeding to Round 2
 
+### Dispatch Accounting (runs every round)
+
+Before each round, record the expected respondents in a private accounting list — this list must include every deliberator **plus any modifier agents** (Judge, Red-Team) that have been added to the team. After the round:
+
+- If any team member has not produced a response after a grace period (60 seconds from the last respondent, or 3 minutes from dispatch, whichever comes first), mark that agent as a **silent drop**.
+- Retry the silent drop **once** with an explicit prompt hint: "Your Round N response was not received. Please produce it now, or reply with a one-sentence explanation of why you cannot."
+- If the retry also fails, escalate to the user by name: "Agent `<name>` is not responding. Expected: `<what it was expected to produce>`. Proceed without it, or retry manually?"
+- At synthesis time: any agent that never produced a required response must appear in the Proposal Document under a **Known gaps** section, named and with its expected contribution noted. A missing Contrarian, Falsifier, or Judge is a quality failure, not a speed optimization.
+
 ### Round 2 — Cross-pollinate and collect
 
 6. After the user checkpoint, send Round 2 directives to each deliberator via `SendMessage`:
-   - Include all other agents' Round 1 position papers (full text, not summaries)
-   - Include any user-injected context or redirections from the checkpoint
-   - Instruct each agent to follow the Round 2 protocol from their prompt
+   - **Include the Round 1 Digest you produced in step 3, not the raw position papers.** The digest is bounded (2-3 sentences per agent + tension points); raw papers grow N² across rounds and will overflow agent context by Round 3 of any deliberation with 4+ agents. See stress-tester finding A.2 in the recovered logs.
+   - Hard cap: the peer-context block passed to any single deliberator must fit within a **2,000-token budget**. If the digest exceeds this, compress further — drop non-load-bearing citations, keep the tension points.
+   - Include any user-injected context or redirections from the checkpoint.
+   - Instruct each agent to follow the Round 2 protocol from their prompt.
 7. Collect all Round 2 responses
 8. Create a **Round 2 Summary** containing:
    - Where positions converged (and what evidence drove convergence)
@@ -77,6 +87,7 @@ The responsibilities below describe the standard Council pattern flow. If the de
 
 ### Shutdown
 
-13. After delivering the proposal, send `shutdown_request` to each deliberator
-14. Wait for acknowledgment from each agent
-15. Report completion to the user
+13. After delivering the proposal, send `shutdown_request` to each deliberator **and to any modifier agents** (Judge, Red-Team) that were added to the team.
+14. Wait for acknowledgment with a **hard shutdown deadline of 30 seconds** from dispatch. After the deadline, any agent that has not acknowledged is presumed dead.
+15. For each non-acknowledging agent, proceed with `TeamDelete` regardless and log the anomaly under a "Shutdown anomalies" section in the Proposal Document. Do not block waiting for dead agents — the user must never be forced to manually clean up a zombie team.
+16. Report completion to the user.
