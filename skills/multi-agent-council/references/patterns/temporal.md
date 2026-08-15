@@ -32,8 +32,8 @@ Each agent receives the goal, context, and its assigned time horizon. Agents wor
 2. States what it is deliberately ignoring (the other horizons' concerns)
 3. Describes the expected state of the system at its target time
 
-**Team lead responsibilities:**
-- Spawn agents via TeamCreate, each assigned a single time horizon
+**Lead responsibilities:**
+- Spawn the agents per `SKILL.md` Step 3 — this is a 2-round pattern, so Path B (teammates) — each assigned a single time horizon in its spawn prompt
 - Enforce horizon discipline: agents must not hedge or try to balance timelines
 - Collect all Round 1 outputs
 - Create a digest contrasting the three proposals
@@ -55,8 +55,8 @@ Each agent receives all other agents' Round 1 positions via SendMessage. Each ag
 3. Identify any point of genuine compatibility — where its horizon's needs can be met without undermining the others
 4. Produce a "cost statement": if the team chooses a different horizon, what exactly does that cost from this agent's perspective?
 
-**Team lead responsibilities:**
-- Distribute all Round 1 positions to every agent
+**Lead responsibilities:**
+- `SendMessage` all Round 1 positions to every agent
 - Include the user's horizon priority from Checkpoint 1
 - Collect all Round 2 outputs
 
@@ -66,7 +66,7 @@ Present the cross-horizon critique and confirm direction before synthesis.
 
 ## Synthesis
 
-The team lead produces a proposal document containing:
+The lead produces a proposal document containing:
 
 1. **Tradeoff matrix** — a table showing what each horizon gains and sacrifices under the recommended approach
 2. **Recommendation** — the chosen path with explicit horizon weighting (e.g., "optimize for Q+1 with NOW constraints respected")

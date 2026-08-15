@@ -34,11 +34,11 @@ Applied in this fixed sequence:
 
 ### Execution Options
 
-The team lead can run Six Hats in two ways depending on the situation:
+The lead can run Six Hats in two ways depending on the situation:
 
-**Option A — Single agent, sequential modes.** One agent cycles through all six hats in order. Best when the problem is well-scoped and does not require deep research at each stage. Faster, but each hat gets less depth.
+**Option A — Single agent, sequential modes.** One agent cycles through all six hats in order — spawn it as a **one-shot subagent** (all six hats run within its single turn), or, for a quick pass, the lead can wear the hats itself. Best when the problem is well-scoped and does not require deep research at each stage. Faster, but each hat gets less depth.
 
-**Option B — Team rotation.** The team lead applies each hat to all agents in the council sequentially. All agents wear the White Hat together, then all wear Red, and so on. Best when the problem is complex and benefits from multiple perspectives within each mode. Richer, but takes longer.
+**Option B — Team rotation.** The lead applies each hat to all agents in the council sequentially. All agents wear the White Hat together, then all wear Red, and so on. Because agents must carry context across the six passes, they are **teammates** (Path B); if the core council is already a Path B team, reuse it. Best when the problem is complex and benefits from multiple perspectives within each mode. Richer, but takes longer.
 
 In both cases, the sequence is fixed. Do not reorder the hats.
 

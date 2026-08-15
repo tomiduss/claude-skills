@@ -32,9 +32,9 @@ Additional personas to consider depending on the problem:
 
 ## Structure
 
-### Step 1 — Spawn Persona Agents
+### Step 1 — Spawn the Persona Agents
 
-The team lead spawns persona agents via TeamCreate. Each agent receives:
+Spawn the persona agents as **one-shot subagents** (`Agent` tool, `subagent_type: general-purpose`, **no `team_name`**) — all in one message so they run in parallel. Each runs once and returns its persona feedback as a tool result. Each agent's spawn prompt contains:
 
 - The converged proposal from the core deliberation
 - A persona definition: who they are, what they know, what they do not know

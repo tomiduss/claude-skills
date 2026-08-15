@@ -48,14 +48,14 @@ If the user cannot name 2 meaningful tradeoffs, **refuse to spawn the council** 
 
 **Baseline tier estimates — no modifiers:**
 
-| Tier | Meets | Deliberators | Rounds | Tool budget/agent | Est. tokens | ≈ cost vs single-Opus |
+| Tier | Meets | Deliberators | Rounds / execution | Tool budget/agent | Est. tokens | ≈ cost vs single-Opus |
 |---|---|---|---|---|---|---|
-| **Simple** | ≤2 tradeoffs | 2 | 1 + synthesis | ~10k | ~50k total | ~5× |
-| **Moderate** | 3-4 tradeoffs | 3 | 2 + synthesis | ~20k | ~150k total | ~15× |
-| **Complex** | 5+ tradeoffs or high stakes | 4 | 2 + synthesis | ~35k | ~300k total | ~30× |
-| **Very Complex** | cross-domain, asymmetric info | 3 × 3 slices | 2 + synthesis | ~50k | ~500k total | ~50× |
+| **Simple** | ≤2 tradeoffs | 2-4 | 1 round → Path A (subagents) | ~10k | ~50-90k total | ~5-9× |
+| **Moderate** | 3-4 tradeoffs | 3 | 2 rounds → Path B (teammates) | ~20k | ~150k total | ~15× |
+| **Complex** | 5+ tradeoffs or high stakes | 4 | 2 rounds → Path B (teammates) | ~35k | ~300k total | ~30× |
+| **Very Complex** | cross-domain, asymmetric info | 3 × 3 slices | 2 rounds → Path B (teammates) | ~50k | ~500k total | ~50× |
 
-Estimates assume Sonnet 4.6 deliberators + Opus 4.6 team lead. The team lead populates `[TOKEN_BUDGET]` in `references/deliberator-prompt.md` with the per-agent column value for the chosen tier.
+Estimates assume Sonnet 4.6 deliberators. The **lead is the session running this skill** — there is no separate lead agent to budget for. Deliberator count is chosen in Step 2 (2-4 roles) by how many perspectives the problem needs; the figure above is typical, not a cap. The execution path follows from round count — see Step 3. Populate `[TOKEN_BUDGET]` in `references/deliberator-prompt.md` with the per-agent value for the chosen tier.
 
 #### 3. Pick modifiers (shows compound cost)
 
@@ -63,8 +63,8 @@ Estimates assume Sonnet 4.6 deliberators + Opus 4.6 team lead. The team lead pop
 
 | Modifier | Default | Add-on cost | Notes |
 |---|---|---|---|
-| Judge (`patterns/judge.md`) | off below Complex, opt-in at/above Complex | +30-50k tokens | Optional, non-blocking. See Task 4. |
-| Pre-mortem (`patterns/pre-mortem.md`) | off | +40-60k tokens | Adds one Red-Team team member + patch synthesis. |
+| Judge (`patterns/judge.md`) | off below Complex, opt-in at/above Complex | +30-50k tokens | Optional, non-blocking one-shot subagent. See `patterns/judge.md`. |
+| Pre-mortem (`patterns/pre-mortem.md`) | off | +40-60k tokens | Adds one Red-Team subagent + patch synthesis. |
 | Minority Report (`patterns/minority-report.md`) | off | +20-30k tokens | Preserves a dissenting voice in the proposal. |
 
 Show the user a compound estimate before spawning:
@@ -108,38 +108,52 @@ Read only the individual role files needed from `references/roles/`.
 - "run a council", "council this", "explore this" → **Execute mode** (default)
 - "design a council", "give me the prompts", "export the council" → **Design mode**
 
-#### Execute mode (default)
+#### How a council runs — read before spawning
 
-Use agent-teams infrastructure to create and run the council:
+**You are the council lead.** In Claude Code's agent-teams model the lead is the session running this skill, fixed for the team's lifetime — you cannot spawn a lead, and a teammate cannot become one. *You* collect positions, run the user checkpoints, and synthesize. Do not spawn a separate "team-lead" agent: a teammate has no channel to the user and cannot run the checkpoints this skill depends on.
 
-1. `TeamCreate("council-{topic-slug}")`
-2. Spawn the **team lead** (synthesizer/orchestrator):
-   - `general-purpose` agent
-   - Read `references/team-lead-prompt.md` for the prompt template
-   - Populate placeholders: `[AGENT_LIST]`, `[GOAL]`, `[CONTEXT]`, `[PATTERN_NAME]`, `[PATTERN_STRUCTURE]`
-   - Read `references/proposal-document.md` and inject into `[PROPOSAL_FORMAT]`
-3. Spawn **2-4 deliberators**:
-   - `general-purpose` agents
-   - Read `references/deliberator-prompt.md` for the shared prompt template
-   - For each agent, read its role file from `references/roles/` and map:
-     - `# Title` → `[ROLE_NAME]`
-     - `**Value function:**` line → `[VALUE_FUNCTION]`
-     - `## Lens` section → `[ROLE_LENS]`
-     - `## Research directives` section → `[RESEARCH_DIRECTIVES]`
-   - Populate `[GOAL]` and `[CONTEXT]` with the shared problem context
+The execution path follows from **round count**:
 
-Then continue to Step 4.
+- **Path A — single-round council** (Simple tier, or any 1-round pattern). Deliberators are **one-shot subagents** — the `Agent` tool with **no `team_name`**. Each runs once and returns its position paper as the tool result. No team, no `SendMessage`, no shutdown.
+- **Path B — multi-round council** (Moderate tier and up, or any pattern with 2+ rounds). Deliberators are **teammates** — the `Agent` tool **with `team_name`** — so they persist and carry their Round 1 investigation into Round 2. An `Agent` call without `team_name` is a one-shot subagent whose name becomes unaddressable once it finishes; using one for a multi-round council breaks Round 2.
+
+**Modifier agents (Pre-mortem Red-Team, Judge, Minority-Report dissent, Stakeholder personas) are always one-shot subagents** — each runs once and returns one artifact. Only multi-round deliberators are teammates.
+
+Mechanics that bite if ignored:
+- Spawn all agents that share a round **in a single message** so they run concurrently.
+- A teammate's plain output is invisible to you — it must `SendMessage` its result. A subagent's final message returns to you automatically.
+- Address teammates by `name`, never by ID. Teammates go idle between turns — that is normal, not a failure.
+- `TeamDelete` fails while any teammate is still active — shut them all down first.
+
+#### Execute mode — Path A (single-round)
+
+1. Spawn the 2-4 deliberators as subagents — one `Agent` call each, all **in one message** for a parallel Round 1:
+   - `subagent_type: "general-purpose"`, `model:` per tier, `name:` the role slug
+   - **no `team_name`**
+   - `prompt:` from `references/deliberator-prompt.md`, placeholders filled, `[MODE]` set to `subagent`
+2. Each subagent returns its position paper as the tool result. Continue to Step 4 — you digest and run the checkpoint.
+3. There is no Round 2. After the checkpoint, synthesize (Step 6). Spawn any modifier as a one-shot subagent when its pattern file directs.
+
+#### Execute mode — Path B (multi-round)
+
+1. `TeamCreate(team_name: "council-{topic-slug}", description: "...")`. From the result note `lead_agent_id`; the part before `@` is `[LEAD_NAME]` — deliberators use it to report back to you.
+2. Spawn the 2-4 deliberators as teammates — one `Agent` call each, all **in one message**:
+   - `subagent_type: "general-purpose"`, `model:` per tier
+   - `team_name: "council-{topic-slug}"`, `name:` the role slug (e.g. `archaeologist`)
+   - `prompt:` from `references/deliberator-prompt.md`, placeholders filled, `[MODE]` set to `teammate`, `[LEAD_NAME]` filled
+3. Read `references/orchestration-guide.md` — your round-by-round protocol as lead — and continue to Step 4.
+
+**Filling the deliberator prompt** (both paths): read each role file from `references/roles/` and map `# Title` → `[ROLE_NAME]`, the `**Value function:**` line → `[VALUE_FUNCTION]`, `## Lens` → `[ROLE_LENS]`, `## Research directives` → `[RESEARCH_DIRECTIVES]`. Fill `[GOAL]`, `[CONTEXT]`, and `[TOKEN_BUDGET]` (the per-agent value for the tier).
 
 #### Design mode
 
-Output the fully populated prompt package — no agents spawned. Read `references/deliberator-prompt.md` and `references/team-lead-prompt.md`, substitute all placeholders with the actual goal, context, role details, and pattern structure, then present:
+Output the fully populated prompt package — no agents spawned. Read `references/deliberator-prompt.md`, substitute all placeholders with the actual goal, context, and role details, then present:
 
-1. **Team lead prompt** — fully populated, ready to paste
-2. **Each deliberator prompt** — fully populated with value function, lens, and research directives injected
-3. **Round structure** — how many rounds, what happens in each, when the user intervenes
-4. **Pattern-specific guidance** — any special instructions from the selected pattern
+1. **Each deliberator prompt** — fully populated with value function, lens, and research directives
+2. **Round structure** — how many rounds, what happens in each, when the user intervenes; for a multi-round council, include the orchestration protocol from `references/orchestration-guide.md`
+3. **Pattern-specific guidance** — any special instructions from the selected pattern
 
-The user can take these prompts to Claude.ai, another AI tool, or customize them before running.
+The user can take these prompts to Claude.ai, another tool, or customize them before running.
 
 After outputting, the workflow is complete — skip Steps 4-7.
 
@@ -150,25 +164,30 @@ All deliberators research simultaneously. Each agent:
 - Reads code, searches the web, traces patterns — gathering real evidence
 - Produces a position paper (≤400 words) with file:line citations and URL references
 
-Team lead collects all position papers and presents a digest to the user.
+Collect all position papers — as tool results (Path A) or via `SendMessage` (Path B) — and present a **Round 1 Digest** to the user. For Path B, follow the digest format in `references/orchestration-guide.md`.
 
 ### Step 5 — User checkpoint and Round 2
 
-Pause for user input. The user can:
+Pause for user input at the checkpoint. The user can:
 - Inject tacit knowledge ("the reason we built it this way was...")
 - Ask a specific agent to explore something further
 - Redirect the deliberation
 
-Team lead sends Round 2 directives to each deliberator with the other agents' positions. In Round 2, each agent must:
+**Path A (single-round) stops here** — after the checkpoint, go to Step 6. If the user wants a point explored deeper, spawn a fresh subagent for that targeted question.
+
+**Path B (multi-round):** `SendMessage` Round 2 directives to each deliberator teammate — include the Round 1 Digest (not raw papers) and any user-injected context. In Round 2, each agent must:
 - Acknowledge the strongest counterargument to their position
-- Update their position if the evidence warrants it
+- Update their position only with cited new evidence, or hold with evidence
 - Flag remaining disagreements with supporting evidence
+
+`references/orchestration-guide.md` has the dispatch, digest, and accounting detail.
 
 ### Step 6 — Synthesis and proposal
 
-Team lead synthesizes all rounds into a **Proposal Document**. Read `references/proposal-document.md` for the output format.
+Synthesize all rounds into a **Proposal Document**. Read `references/proposal-document.md` for the output format.
 
-Then shut down the council: send `shutdown_request` to each agent, wait for responses, `TeamDelete`.
+- **Path A:** nothing to tear down — the deliberator subagents terminated when they returned their papers.
+- **Path B:** shut down the council — `SendMessage` a `shutdown_request` to each teammate, wait for acknowledgment (30-second deadline), then `TeamDelete`. `TeamDelete` fails while any teammate is still active, so confirm they are all down first. Log any straggler under "Shutdown anomalies" in the Proposal Document.
 
 ### Step 7 — Pipeline handoff (conditional)
 
@@ -202,6 +221,6 @@ If no → deliver the proposal document and done.
 - `references/patterns-index.md` — Pattern library index
 - `references/patterns/*.md` — Individual pattern files with prompt templates
 - `references/deliberator-prompt.md` — Shared prompt template for spawning deliberator agents
-- `references/team-lead-prompt.md` — Prompt template for the synthesizer/orchestrator
+- `references/orchestration-guide.md` — Round-by-round protocol the lead follows for a multi-round (Path B) council
 - `references/custom-role-template.md` — Guide for creating domain-specific roles
 - `references/proposal-document.md` — Output format for the proposal document

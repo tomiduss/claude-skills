@@ -16,9 +16,9 @@ A dedicated dissent agent writes the strongest possible case against the final p
 
 ## Structure
 
-### Step 1 — Spawn Dissent Agent
+### Step 1 — Spawn the Dissent Agent
 
-The team lead spawns a single dissent agent via TeamCreate. This agent receives:
+Spawn a single dissent agent as a **one-shot subagent** (`Agent` tool, `subagent_type: general-purpose`, **no `team_name`**). It runs once and returns the minority report as its tool result. Its spawn prompt contains:
 
 - The converged proposal
 - The full council reasoning from the core deliberation

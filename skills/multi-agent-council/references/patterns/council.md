@@ -15,6 +15,8 @@ The foundational deliberation pattern. All agents share the same goal and the sa
 
 ## Round Structure
 
+A **Simple-tier council runs one round** — Round 1, then straight to synthesis (skip Checkpoint 2 and Round 2). **Moderate tier and up run both rounds.** Round count sets the execution path: one round → Path A (one-shot subagents); two → Path B (teammates). See `SKILL.md` Step 3.
+
 ### Round 1 — Independent Research (parallel)
 
 Each agent receives the goal, the relevant context, and its assigned role (value function + research directives from the role reference). Agents work in parallel. Each agent:
@@ -25,9 +27,8 @@ Each agent receives the goal, the relevant context, and its assigned role (value
 
 All Round 1 work is parallel. Agents do not see each other's output during this round.
 
-**Team lead responsibilities:**
-- Spawn all agents via TeamCreate with their role assignments and the shared goal/context
-- Send each agent its research directive via SendMessage
+**Lead responsibilities** (the lead is the session running the skill):
+- Spawn the deliberators per `SKILL.md` Step 3 — one-shot subagents for a single-round council, teammates for multi-round. Each agent's role and research directives are baked into its spawn prompt.
 - Collect all Round 1 outputs
 - Create a digest summarizing each agent's position for the user
 
@@ -53,8 +54,8 @@ Each agent receives all other agents' Round 1 positions via SendMessage. Each ag
 
 Agents work in parallel but with full visibility into each other's positions.
 
-**Team lead responsibilities:**
-- Distribute all Round 1 positions to every agent
+**Lead responsibilities (multi-round councils only):**
+- `SendMessage` the Round 1 Digest (not the raw papers) to every deliberator teammate
 - Include any user-injected context from Checkpoint 1
 - Collect all Round 2 outputs
 
@@ -70,7 +71,7 @@ Wait for user input before synthesizing.
 
 ## Synthesis
 
-The team lead produces a proposal document containing:
+The lead produces a proposal document containing:
 
 1. **Recommendation** — the chosen direction in one sentence
 2. **Agent contributions** — what each agent contributed to the final decision

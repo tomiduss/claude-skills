@@ -33,8 +33,8 @@ Each agent receives only its assigned context slice plus the shared goal. Agents
 2. Explicitly states what it is assuming about the context it cannot see
 3. Lists the questions it would need answered to have full confidence in its proposal
 
-**Team lead responsibilities:**
-- Spawn agents via TeamCreate with strict context boundaries — each agent receives only its designated slice
+**Lead responsibilities:**
+- Spawn the agents per `SKILL.md` Step 3 — this is a 2-round pattern, so Path B (teammates). The context boundary is enforced by what you put in each agent's spawn prompt: give each agent only its designated slice.
 - Enforce isolation: do not leak context between agents during Round 1
 - Collect all Round 1 outputs
 - Create a digest highlighting where proposals conflict and where assumptions diverge
@@ -58,8 +58,8 @@ Context boundaries are lifted. Each agent receives all other agents' Round 1 pos
 3. Respond to gaps in other agents' understanding — correct their assumptions about its domain
 4. Produce a revised proposal that accounts for the full picture
 
-**Team lead responsibilities:**
-- Distribute all Round 1 positions and the originally-siloed context to all agents
+**Lead responsibilities:**
+- `SendMessage` all Round 1 positions and the originally-siloed context to every agent
 - Include any additional context from the user checkpoint
 - Collect all Round 2 outputs
 
@@ -69,7 +69,7 @@ Present Round 2 results. By this point, agents should have a shared understandin
 
 ## Synthesis
 
-The team lead produces a proposal document containing:
+The lead produces a proposal document containing:
 
 1. **Full picture map** — the combined understanding from all context slices, including where slices conflicted and how conflicts were resolved
 2. **Recommendation** — a proposal that accounts for all three slices

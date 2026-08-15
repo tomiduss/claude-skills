@@ -24,22 +24,19 @@ An earlier draft of this modifier was rejected as a sycophantic SPOF because it 
 
 ## Structure
 
-### Step 1 — Add the Judge to the council team
+### Step 1 — Spawn the Judge as a one-shot subagent
 
-The Judge is added as a **team member** via the existing `TeamCreate` infrastructure used for deliberators. It is not spawned as a one-shot subagent via the Agent tool.
+The Judge runs exactly once: it re-synthesizes from the raw rounds and returns one independent proposal. Spawn it as a **subagent**, not a teammate:
 
-Dispatch specifics:
-
-- `subagent_type`: `general-purpose`
-- `team_name`: the same team the council is running on
-- `name`: `judge`
+- `Agent` tool, `subagent_type`: `general-purpose`
+- **no `team_name`** — the Judge produces a single artifact and does not persist
 - Prompt: the Judge prompt template (see bottom of this file)
 
-The Judge is added **when the modifier is enabled at the complexity gate** (see `SKILL.md` Step 1), at the same time deliberators are being spawned — not lazily after Round 2.
+The modifier is *enabled* at the complexity gate (see `SKILL.md` Step 1), but the Judge subagent is *spawned* **after Round 2 is collected**, so its prompt can carry the full raw material (Step 2). The Judge applies only to multi-round / Path B councils — a single-round council has no Round 2 to audit.
 
-### Step 2 — The team lead dispatches inputs to the Judge via `SendMessage`
+### Step 2 — The Judge's inputs (in its spawn prompt)
 
-After Round 2 is collected (so the Judge has full raw material), the team lead sends **one** `SendMessage` to the Judge containing:
+Because the Judge is a one-shot subagent, its inputs go in its **spawn prompt**, not a `SendMessage`. The prompt contains:
 
 - The **raw Round 1 position papers** (all deliberators, full text)
 - The **raw Round 2 responses** (all deliberators, full text)
@@ -54,11 +51,11 @@ The Judge is **explicitly denied**:
 
 ### Step 3 — Judge produces its own independent synthesis
 
-The Judge produces an independent Proposal Document from the raw positions using the same format at `references/proposal-document.md`. Length ≤800 words. It sends the result back to the team lead via `SendMessage`.
+The Judge produces an independent Proposal Document from the raw positions using the same format at `references/proposal-document.md`. Length ≤800 words. It returns the result to the lead as its final output (the subagent tool result).
 
-### Step 4 — Team lead produces its own synthesis (in parallel or after)
+### Step 4 — Team lead produces its own synthesis
 
-The team lead produces its synthesis per the standard flow. Order does not matter as long as neither reads the other. Because both are team members, this can happen in parallel.
+The team lead (you, the session running the skill) produces its synthesis per the standard flow. Because the Judge subagent only ever receives the raw rounds — never your synthesis — order does not matter: produce yours before, after, or (spawn the Judge with `run_in_background: true`) while the Judge runs.
 
 ### Step 5 — Falsifiable rubric comparison (team lead side)
 
@@ -86,7 +83,7 @@ If the Judge crashes, times out, exceeds its budget, or otherwise cannot produce
 - Log the failure under "Shutdown anomalies" in the Proposal Document.
 - **Never block delivery on the Judge.** The Judge is a quality enhancement, not a gate.
 
-The dispatch accounting rule in `team-lead-prompt.md` catches Judge silent drops and handles the retry-then-escalate flow automatically.
+A one-shot subagent does not have "silent drops" — it either returns its synthesis or errors out. If the Judge subagent errors, times out, or exceeds budget, handle it per Step 7 (non-blocking).
 
 ## Budget
 
@@ -104,22 +101,22 @@ If the Judge was unavailable, a single "Judge unavailable: [reason]" line replac
 
 ## Judge prompt template
 
-Use when dispatching the Judge team member:
+Use when spawning the Judge subagent:
 
 ```
 You are the **Judge** on a multi-agent deliberation council. You are NOT a deliberator — you have no value function and no position on the problem. Your job is to independently synthesize a proposal from the raw deliberator outputs and then compare structural properties of your synthesis against whatever the team lead produces (which you will not see).
 
-Your sole inputs:
-- The raw Round 1 position papers: [INJECTED_VIA_SENDMESSAGE]
-- The raw Round 2 responses: [INJECTED_VIA_SENDMESSAGE]
+Your sole inputs (provided in this prompt):
+- The raw Round 1 position papers: [INJECTED_IN_PROMPT]
+- The raw Round 2 responses: [INJECTED_IN_PROMPT]
 - The problem statement: [GOAL]
 - Codebase access via Read, Glob, Grep — use this to verify deliberator citations against the actual code.
 
-You are explicitly denied access to the team lead's Round 1 Digest, Round 2 Summary, and final synthesis. If you somehow receive them by mistake, do not read them — reply to the team lead with an error message.
+You are explicitly denied access to the team lead's Round 1 Digest, Round 2 Summary, and final synthesis. If you somehow receive them by mistake, do not read them — flag the error in your output.
 
 Your output is a Proposal Document in the same format as the team lead would produce (see references/proposal-document.md), length ≤800 words, based solely on the raw deliberator outputs you were given.
 
-You do not revise your own output. You produce it once and send it back via SendMessage. The team lead will do the rubric comparison.
+You do not revise your own output. You produce it once and return it as your final response. The team lead will do the rubric comparison.
 
 Failure modes you must avoid:
 - Do not second-guess your own verdict because it might disagree with the team lead

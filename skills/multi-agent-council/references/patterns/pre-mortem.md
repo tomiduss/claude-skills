@@ -15,22 +15,19 @@ A red-team pass that runs after a core pattern has produced a converged proposal
 
 ## Structure
 
-### Step 1 — Add the Red-Team agent to the council team
+### Step 1 — Spawn the Red-Team as a one-shot subagent
 
-The Red-Team agent is added as a **team member** via the existing `TeamCreate` infrastructure used for deliberators. It is not spawned as a one-shot subagent via the Agent tool — doing so would create a second dispatch path and would bypass the dispatch accounting rule in `team-lead-prompt.md`.
+The Red-Team runs exactly once: it investigates the converged proposal and returns one post-mortem. That is a one-shot task, so spawn it as a **subagent**, not a teammate:
 
-Dispatch specifics:
+- `Agent` tool, `subagent_type`: `general-purpose`
+- **no `team_name`** — the Red-Team does not deliberate across rounds and does not need to persist
+- Prompt: the Red-Team prompt template below
 
-- `subagent_type`: `general-purpose`
-- `team_name`: the same team the council is already running on
-- `name`: `red-team`
-- Prompt: use the Red-Team prompt template below (append to `references/deliberator-prompt.md` or inline here — implementation choice)
+Its post-mortem returns to the lead as the subagent's tool result. The Red-Team works the same way whether the core council was Path A or Path B — it is always a one-shot subagent. A fresh subagent has zero prior context by construction, which is the cleanest possible guarantee of the isolation this modifier depends on (see Step 1.1).
 
-The team lead then communicates with the Red-Team agent via `SendMessage` exactly like any deliberator. The agent participates in the dispatch accounting rule (it is in the expected-respondents list), the shutdown timeout (it acknowledges `shutdown_request` or is presumed dead), and the team deletion protocol.
+### Step 1.1 — Give the Red-Team its isolated context
 
-### Step 1.1 — Send the Red-Team agent its isolated context
-
-Once added to the team, the Red-Team agent receives a single `SendMessage` from the team lead containing **only**:
+Spawn the Red-Team with a prompt containing **only**:
 
 - The **converged proposal artifact** itself — the Proposal Document's final recommendation and scope sections, **stripped of the "we considered / we rejected" reasoning sections**. Only the outcome, not the deliberation.
 - The **problem statement** as the user originally provided it.
@@ -46,7 +43,7 @@ The Red-Team agent is **explicitly denied** (not included in the message, not av
 
 The Red-Team agent has **no access to the core council's reasoning** — only the proposal artifact and the original problem statement. This isolation is the mechanism that makes the pre-mortem valuable.
 
-The Red-Team agent's mandate, included in the same message: **"The proposal was implemented and it failed badly. Do not question whether it failed — it did. Work backwards from failure, using only the proposal artifact and the code, not any council's reasoning about it."**
+The Red-Team's mandate, included in the same prompt: **"The proposal was implemented and it failed badly. Do not question whether it failed — it did. Work backwards from failure, using only the proposal artifact and the code, not any council's reasoning about it."**
 
 **Why this matters:** a "fresh" agent that has read the council's analysis is already anchored on the tradeoffs the council chose to frame. The pre-mortem's value comes specifically from the failure modes the council **did not** think about — which requires not knowing what the council **did** think about. See stress-tester finding A.4 in the recovered research logs under `docs/superpowers/plans/2026-04-09-council-improvements-research/`.
 
